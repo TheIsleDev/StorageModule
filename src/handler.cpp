@@ -16,6 +16,7 @@
 
 #include "DBLink/database.cpp"
 #include "Structs/TheIsleStructs.hpp"
+#include "Structs/FunctionParamisator.hpp"
 
 #include "_structs.hpp"
 
@@ -69,48 +70,25 @@ namespace StorageSystemComponent {
 		int32 DinoId = *_DinoClassID->ContainerPtrToValuePtr<int32>(Character);
 		Output::send(STR("Attempt to save dino for owner: {}, dinoid: {}"), *SteamId, DinoId);
 
-		uint8* Buffer1 = static_cast<uint8*>(std::malloc(_GetCharacterData_BufferSize));
-		std::memset(Buffer1, 0, _GetCharacterData_BufferSize);
-		for (FProperty* Prop : TFieldRange<FProperty>(_GetCharacterData, EFieldIterationFlags::IncludeDeprecated)) {
-			Prop->InitializeValue_InContainer(Buffer1);
-		}
+		IsleStructs::TScopedFunctionParams<IsleStructs::FGetCharacterDataParams> GetCharacterDataParams(_GetCharacterData);
+		GetCharacterDataParams->Character = Character;
+		GetCharacterDataParams->bForceSafe = false;
+		_TISaveManager->ProcessEvent(_GetCharacterData, GetCharacterDataParams.Get());
 
-		*_GetCharacterData_PropCharacter->ContainerPtrToValuePtr<IsleStructs::ATICharacterBase*>(Buffer1) = Character;
-		*_GetCharacterData_PropForceSafe->ContainerPtrToValuePtr<bool>(Buffer1) = false;
-		_TISaveManager->ProcessEvent(_GetCharacterData, Buffer1);
-		void* PlayerData = _GetCharacterData_ReturnProperty->ContainerPtrToValuePtr<void>(Buffer1);
+		IsleStructs::TScopedFunctionParams<IsleStructs::FPlayerDataToStringParams> PlayerDataToStringParams(_PlayerDataToString);
+		PlayerDataToStringParams->PlayerData = GetCharacterDataParams->ReturnValue;
+		_TISaveManager->ProcessEvent(_PlayerDataToString, PlayerDataToStringParams.Get());
+		FString Result = PlayerDataToStringParams->ReturnValue;
 
-
-		uint8* Buffer2 = static_cast<uint8*>(std::malloc(_PlayerDataToString_BufferSize));
-		std::memset(Buffer2, 0, _PlayerDataToString_BufferSize);
-		for (FProperty* Prop : TFieldRange<FProperty>(_PlayerDataToString, EFieldIterationFlags::IncludeDeprecated)) {
-			Prop->InitializeValue_InContainer(Buffer2);
-		}
-
-		*_PlayerDataToString_PropPlayerData->ContainerPtrToValuePtr<void*>(Buffer2) = PlayerData;
-		_TISaveManager->ProcessEvent(_PlayerDataToString, Buffer2);
-		FString FinalResult = *_PlayerDataToString_ReturnProperty->ContainerPtrToValuePtr<FString>(Buffer2);
-
-
-		if(DataBaseConnector::SaveDino(SteamId, DinoId, FinalResult, 0)) {
-			IsleStructs::FSetHealthParams Params{0};
-			Character->ProcessEvent(_SetHealth, &Params);
+		if(DataBaseConnector::SaveDino(SteamId, DinoId, Result, 0)) {
+			IsleStructs::FSetHealthParams SetHealthParams{0};
+			Character->ProcessEvent(_SetHealth, &SetHealthParams);
 			IsleStructs::FSetWaitAndDestroyCorpseParams CorpseParams{100};
 			Character->ProcessEvent(_WaitAndDestroyCorpse, &CorpseParams);
 			Output::send(STR("Dino removed from game, owner: {}, dinoid: {}"), *SteamId, DinoId);
 		} else {
 			Output::send<LogLevel::Error>(STR("Failed to save dino for owner: {}, dinoid: {}"), *SteamId, DinoId);
 		}
-
-
-		for (FProperty* Prop : TFieldRange<FProperty>(_GetCharacterData, EFieldIterationFlags::IncludeDeprecated)) {
-			Prop->DestroyValue_InContainer(Buffer1);
-		}
-		for (FProperty* Prop : TFieldRange<FProperty>(_PlayerDataToString, EFieldIterationFlags::IncludeDeprecated)) {
-			Prop->DestroyValue_InContainer(Buffer2);
-		}
-		std::free(Buffer1);
-		std::free(Buffer2);
 	}
 
 	auto LoadDino(IsleStructs::ATIPlayerController* Player, int32 DinoId) -> void {
@@ -119,7 +97,6 @@ namespace StorageSystemComponent {
 
 		FString SteamId = *_PlayerSteamId->ContainerPtrToValuePtr<FString>(Player);
 		Output::send(STR("Attempt to load dino for owner: {}, dinoid: {}"), *SteamId, DinoId);
-		//
 
 		FString Requested;
 		if(!DataBaseConnector::LoadDino(SteamId, DinoId, Requested)) {
@@ -127,43 +104,28 @@ namespace StorageSystemComponent {
 			return;
 		};
 
-		//
-		uint8* Buffer1 = static_cast<uint8*>(std::malloc(_StringToPlayerData_BufferSize));
-		std::memset(Buffer1, 0, _StringToPlayerData_BufferSize);
-		for (FProperty* Prop : TFieldRange<FProperty>(_StringToPlayerData, EFieldIterationFlags::IncludeDeprecated)) {
-			Prop->InitializeValue_InContainer(Buffer1);
-		}
+		IsleStructs::TScopedFunctionParams<IsleStructs::FStringToPlayerDataParams> StringToPlayerDataParams(_StringToPlayerData);
+		StringToPlayerDataParams->String = Requested;
+		_TISaveManager->ProcessEvent(_StringToPlayerData, StringToPlayerDataParams.Get());
+		IsleStructs::FTIPlayerData PlayerData = StringToPlayerDataParams->ReturnValue;
 
-		*_StringToPlayerData_PropString->ContainerPtrToValuePtr<FString>(Buffer1) = Requested;
-		_TISaveManager->ProcessEvent(_StringToPlayerData, Buffer1);
-		void* PlayerData = _StringToPlayerData_ReturnProperty->ContainerPtrToValuePtr<void>(Buffer1);
+		IsleStructs::TScopedFunctionParams<IsleStructs::FAddSpawnRequestParams> AddSpawnRequestParams(_AddSpawnRequest);
+		AddSpawnRequestParams->SpawnData.RequestTime = 0.0f;
+		AddSpawnRequestParams->SpawnData.Controller = Player;
+		AddSpawnRequestParams->SpawnData.SteamId = SteamId;
+		AddSpawnRequestParams->SpawnData.Class = PlayerData.Class;
+		AddSpawnRequestParams->SpawnData.bLoadOnly = true;
+		AddSpawnRequestParams->SpawnData.SpawnLocation = PlayerData.Location;
+		AddSpawnRequestParams->SpawnData.CustomizerData = PlayerData.CustomizedData;
+		AddSpawnRequestParams->SpawnData.PlayerData = PlayerData;
+		AddSpawnRequestParams->bAddHud = false;
+		AddSpawnRequestParams->bLoadSaved = true;
+		GameMode->ProcessEvent(_AddSpawnRequest, AddSpawnRequestParams.Get());
 
-
-		uint8* Buffer2 = static_cast<uint8*>(std::malloc(_AddSpawnRequest_BufferSize));
-		std::memset(Buffer2, 0, _AddSpawnRequest_BufferSize);
-		for (FProperty* Prop : TFieldRange<FProperty>(_AddSpawnRequest, EFieldIterationFlags::IncludeDeprecated)) {
-			Prop->InitializeValue_InContainer(Buffer2);
-		}
-
-		*_AddSpawnRequest_PropSpawnData->ContainerPtrToValuePtr<void*>(Buffer2) = PlayerData;
-		*_AddSpawnRequest_PropbAddHud->ContainerPtrToValuePtr<bool>(Buffer2) = true;
-		*_AddSpawnRequest_PropbLoadSaved->ContainerPtrToValuePtr<bool>(Buffer2) = true;
-		GameMode->ProcessEvent(_AddSpawnRequest, Buffer2);
 		if (!DataBaseConnector::ConfirmLoadDino(SteamId, DinoId)) {
 			Output::send<LogLevel::Error>(STR("Failed to update dino status for owner: {}, dinoid: {}"), *SteamId, DinoId);
 		}
 		Output::send(STR("Loaded dino for owner: {}, dinoid: {}"), *SteamId, DinoId);
-		Output::send(STR("DINO DATA: {}"), *Requested);
-
-
-		for (FProperty* Prop : TFieldRange<FProperty>(_StringToPlayerData, EFieldIterationFlags::IncludeDeprecated)) {
-			Prop->DestroyValue_InContainer(Buffer1);
-		}
-		for (FProperty* Prop : TFieldRange<FProperty>(_StringToPlayerData, EFieldIterationFlags::IncludeDeprecated)) {
-			Prop->DestroyValue_InContainer(Buffer2);
-		}
-		std::free(Buffer1);
-		std::free(Buffer2);
 	}
 
 	auto HandleChatMessage(UnrealScriptFunctionCallableContext& FuncContext) -> void {

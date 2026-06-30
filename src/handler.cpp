@@ -41,20 +41,12 @@ namespace StorageSystemComponent {
 	static FProperty* _PlayerDataToString_PropPlayerData = nullptr;
 	static FProperty* _PlayerDataToString_ReturnProperty = nullptr;
 
-	static UFunction* _StringToPlayerData = nullptr;
-	static uint32 _StringToPlayerData_BufferSize;
-	static FProperty* _StringToPlayerData_PropString = nullptr;
-	static FProperty* _StringToPlayerData_ReturnProperty = nullptr;
-
-	static UFunction* _AddSpawnRequest = nullptr;
-	static uint32 _AddSpawnRequest_BufferSize;
-	static FProperty* _AddSpawnRequest_PropSpawnData = nullptr;
-	static FProperty* _AddSpawnRequest_PropbAddHud = nullptr;
-	static FProperty* _AddSpawnRequest_PropbLoadSaved = nullptr;
-
+	static StructsParams::DataOfStringToPlayerData StringToPlayerData{};
+	static StructsParams::DataOfAddSpawnRequest AddSpawnRequest{};
 
 	static IsleStructs::UTISaveManager* _TISaveManager = nullptr;
 
+	static UFunction* TryToRespawn = nullptr;
 	static UFunction* _SetHealth = nullptr;
 	static UFunction* _WaitAndDestroyCorpse = nullptr;
 
@@ -78,6 +70,7 @@ namespace StorageSystemComponent {
 		IsleStructs::TScopedFunctionParams<IsleStructs::FPlayerDataToStringParams> PlayerDataToStringParams(_PlayerDataToString);
 		PlayerDataToStringParams->PlayerData = GetCharacterDataParams->ReturnValue;
 		_TISaveManager->ProcessEvent(_PlayerDataToString, PlayerDataToStringParams.Get());
+
 		FString Result = PlayerDataToStringParams->ReturnValue;
 
 		if(DataBaseConnector::SaveDino(SteamId, DinoId, Result, 0)) {
@@ -104,23 +97,33 @@ namespace StorageSystemComponent {
 			return;
 		};
 
-		IsleStructs::TScopedFunctionParams<IsleStructs::FStringToPlayerDataParams> StringToPlayerDataParams(_StringToPlayerData);
-		StringToPlayerDataParams->String = Requested;
-		_TISaveManager->ProcessEvent(_StringToPlayerData, StringToPlayerDataParams.Get());
-		IsleStructs::FTIPlayerData PlayerData = StringToPlayerDataParams->ReturnValue;
+		StructsParams::FProcessEventParams FirstParams(StringToPlayerData.Function, StringToPlayerData.BufferSize);
+		FirstParams.Set(StringToPlayerData.String, Requested);
+		_TISaveManager->ProcessEvent(StringToPlayerData.Function, FirstParams.Data());
 
-		IsleStructs::TScopedFunctionParams<IsleStructs::FAddSpawnRequestParams> AddSpawnRequestParams(_AddSpawnRequest);
-		AddSpawnRequestParams->SpawnData.RequestTime = 0.0f;
-		AddSpawnRequestParams->SpawnData.Controller = Player;
-		AddSpawnRequestParams->SpawnData.SteamId = SteamId;
-		AddSpawnRequestParams->SpawnData.Class = PlayerData.Class;
-		AddSpawnRequestParams->SpawnData.bLoadOnly = true;
-		AddSpawnRequestParams->SpawnData.SpawnLocation = PlayerData.Location;
-		AddSpawnRequestParams->SpawnData.CustomizerData = PlayerData.CustomizedData;
-		AddSpawnRequestParams->SpawnData.PlayerData = PlayerData;
-		AddSpawnRequestParams->bAddHud = false;
-		AddSpawnRequestParams->bLoadSaved = true;
-		GameMode->ProcessEvent(_AddSpawnRequest, AddSpawnRequestParams.Get());
+		void* PlayerData = FirstParams.GetAddress<void>(StringToPlayerData.ReturnValue);
+		void* Class = FirstParams.GetAddressInContainer<void>(PlayerData, StringToPlayerData.PlayerData_Class);
+		void* Location = FirstParams.GetAddressInContainer<void>(PlayerData, StringToPlayerData.PlayerData_Location);
+		void* CustomizedData = FirstParams.GetAddressInContainer<void>(PlayerData, StringToPlayerData.PlayerData_CustomizedData);
+	
+		StructsParams::FProcessEventParams SecondParams(AddSpawnRequest.Function, AddSpawnRequest.BufferSize);
+		void* Container = SecondParams.GetAddress<void>(AddSpawnRequest.SpawnData);
+		SecondParams.SetInContainer(Container, AddSpawnRequest.SpawnData_Controller, Player);
+		SecondParams.SetInContainer(Container, AddSpawnRequest.SpawnData_SteamId, SteamId);
+		SecondParams.CopyFromAddress(Container, AddSpawnRequest.SpawnData_Class, Class);
+		SecondParams.SetInContainer(Container, AddSpawnRequest.SpawnData_bKeepActualLoc, false);
+		SecondParams.SetInContainer(Container, AddSpawnRequest.SpawnData_bLoadOnly, false);
+		SecondParams.SetInContainer(Container, AddSpawnRequest.SpawnData_bDefaultSpawn, false);
+		SecondParams.CopyFromAddress(Container, AddSpawnRequest.SpawnData_SpawnLocation, Location);
+		SecondParams.CopyFromAddress(Container, AddSpawnRequest.SpawnData_CustomizerData, CustomizedData);
+		SecondParams.SetInContainer(Container, AddSpawnRequest.SpawnData_bUseQuickRespawn, false);
+		SecondParams.CopyFromAddress(Container, AddSpawnRequest.SpawnData_PlayerData, PlayerData);
+		SecondParams.Set(AddSpawnRequest.bAddHud, true);
+		SecondParams.Set(AddSpawnRequest.bLoadSaved, true);
+
+		IsleStructs::FTryToRespawnParams SetTryToRespawnParams{Player, SteamId};
+		GameMode->ProcessEvent(TryToRespawn, &SetTryToRespawnParams);// Magic word
+		GameMode->ProcessEvent(AddSpawnRequest.Function, SecondParams.Data());
 
 		if (!DataBaseConnector::ConfirmLoadDino(SteamId, DinoId)) {
 			Output::send<LogLevel::Error>(STR("Failed to update dino status for owner: {}, dinoid: {}"), *SteamId, DinoId);
@@ -171,16 +174,13 @@ namespace StorageSystemComponent {
 		_PlayerDataToString_PropPlayerData = _PlayerDataToString->GetPropertyByNameInChain(STR("PlayerData"));
 		_PlayerDataToString_ReturnProperty = _PlayerDataToString->GetReturnProperty();
 
-		_StringToPlayerData = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TISaveManager:StringToPlayerData"));
-		_StringToPlayerData_BufferSize = _StringToPlayerData->GetParmsSize();
-		_StringToPlayerData_PropString = _StringToPlayerData->GetPropertyByNameInChain(STR("String"));
-		_StringToPlayerData_ReturnProperty = _StringToPlayerData->GetReturnProperty();
-		
-		_AddSpawnRequest = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TIGameModeBase:AddSpawnRequest"));
-		_AddSpawnRequest_BufferSize = _AddSpawnRequest->GetParmsSize();
-		_AddSpawnRequest_PropSpawnData = _AddSpawnRequest->GetPropertyByNameInChain(STR("SpawnData"));
-		_AddSpawnRequest_PropbAddHud = _AddSpawnRequest->GetPropertyByNameInChain(STR("bAddHud"));
-		_AddSpawnRequest_PropbLoadSaved = _AddSpawnRequest->GetPropertyByNameInChain(STR("bLoadSaved"));
+		StringToPlayerData.Function = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TISaveManager:StringToPlayerData"));
+		StringToPlayerData.Initialize();
+
+		AddSpawnRequest.Function = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TIGameModeBase:AddSpawnRequest"));
+		AddSpawnRequest.Initialize();
+
+		TryToRespawn = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TIGameModeBase:TryToRespawn"));
 
 		_TISaveManager = UObjectGlobals::StaticFindObject<IsleStructs::UTISaveManager*>(nullptr, nullptr, STR("/Script/TheIsle.Default__TISaveManager"), false);
 		

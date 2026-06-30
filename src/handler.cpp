@@ -46,7 +46,7 @@ namespace StorageSystemComponent {
 
 	static IsleStructs::UTISaveManager* _TISaveManager = nullptr;
 
-	static UFunction* TryToRespawn = nullptr;
+	static UFunction* _TryToRespawn = nullptr;
 	static UFunction* _SetHealth = nullptr;
 	static UFunction* _WaitAndDestroyCorpse = nullptr;
 
@@ -60,6 +60,7 @@ namespace StorageSystemComponent {
 		FString SteamId = *_PlayerSteamId->ContainerPtrToValuePtr<FString>(Player);
 		IsleStructs::ATICharacterBase* Character = static_cast<IsleStructs::ATICharacterBase*>(Pawn);
 		int32 DinoId = *_DinoClassID->ContainerPtrToValuePtr<int32>(Character);
+		// Some more requirements, you can even add them to settings
 		Output::send(STR("Attempt to save dino for owner: {}, dinoid: {}"), *SteamId, DinoId);
 
 		IsleStructs::TScopedFunctionParams<IsleStructs::FGetCharacterDataParams> GetCharacterDataParams(_GetCharacterData);
@@ -85,7 +86,7 @@ namespace StorageSystemComponent {
 	}
 
 	auto LoadDino(IsleStructs::ATIPlayerController* Player, int32 DinoId) -> void {
-		auto* GameMode = UObjectGlobals::FindFirstOf(STR("BP_SurvivalGameMode_C"));
+		auto* GameMode = UObjectGlobals::FindFirstOf(STR("BP_SurvivalGameMode_C"));// Idk why I don't cache it, me is dum dum.
 		if (!GameMode) return;
 
 		FString SteamId = *_PlayerSteamId->ContainerPtrToValuePtr<FString>(Player);
@@ -97,6 +98,7 @@ namespace StorageSystemComponent {
 			return;
 		};
 
+		// You can add here checks later for same dino type and etc.
 		StructsParams::FProcessEventParams FirstParams(StringToPlayerData.Function, StringToPlayerData.BufferSize);
 		FirstParams.Set(StringToPlayerData.String, Requested);
 		_TISaveManager->ProcessEvent(StringToPlayerData.Function, FirstParams.Data());
@@ -111,7 +113,7 @@ namespace StorageSystemComponent {
 		SecondParams.SetInContainer(Container, AddSpawnRequest.SpawnData_Controller, Player);
 		SecondParams.SetInContainer(Container, AddSpawnRequest.SpawnData_SteamId, SteamId);
 		SecondParams.CopyFromAddress(Container, AddSpawnRequest.SpawnData_Class, Class);
-		SecondParams.SetInContainer(Container, AddSpawnRequest.SpawnData_bKeepActualLoc, false);
+		SecondParams.SetInContainer(Container, AddSpawnRequest.SpawnData_bKeepActualLoc, false);// Only this one is safe to change
 		SecondParams.SetInContainer(Container, AddSpawnRequest.SpawnData_bLoadOnly, false);
 		SecondParams.SetInContainer(Container, AddSpawnRequest.SpawnData_bDefaultSpawn, false);
 		SecondParams.CopyFromAddress(Container, AddSpawnRequest.SpawnData_SpawnLocation, Location);
@@ -122,10 +124,10 @@ namespace StorageSystemComponent {
 		SecondParams.Set(AddSpawnRequest.bLoadSaved, true);
 
 		IsleStructs::FTryToRespawnParams SetTryToRespawnParams{Player, SteamId};
-		GameMode->ProcessEvent(TryToRespawn, &SetTryToRespawnParams);// Magic word
+		GameMode->ProcessEvent(_TryToRespawn, &SetTryToRespawnParams);// Magic word
 		GameMode->ProcessEvent(AddSpawnRequest.Function, SecondParams.Data());
 
-		if (!DataBaseConnector::ConfirmLoadDino(SteamId, DinoId)) {
+		if (!DataBaseConnector::ConfirmLoadDino(SteamId, DinoId)) {// For now I don't care for tracking load, if it really loaded or not. You can add later to check Id field on dino, its enough
 			Output::send<LogLevel::Error>(STR("Failed to update dino status for owner: {}, dinoid: {}"), *SteamId, DinoId);
 		}
 		Output::send(STR("Loaded dino for owner: {}, dinoid: {}"), *SteamId, DinoId);
@@ -180,10 +182,9 @@ namespace StorageSystemComponent {
 		AddSpawnRequest.Function = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TIGameModeBase:AddSpawnRequest"));
 		AddSpawnRequest.Initialize();
 
-		TryToRespawn = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TIGameModeBase:TryToRespawn"));
-
 		_TISaveManager = UObjectGlobals::StaticFindObject<IsleStructs::UTISaveManager*>(nullptr, nullptr, STR("/Script/TheIsle.Default__TISaveManager"), false);
-		
+
+		_TryToRespawn = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TIGameModeBase:TryToRespawn"));
 		_SetHealth = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TICharacterBase:SetHealth"));// Safe way to kill it
 		_WaitAndDestroyCorpse = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TICharacterBase:WaitAndDestroyCorpse"));// Safe way to clean up it
 

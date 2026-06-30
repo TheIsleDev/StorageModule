@@ -9,7 +9,7 @@
 
 class StorageSystem : public RC::CppUserModBase {
 private:
-	StorageSystemConfig::StorageConfig Config;
+	StorageSystemConfiguration::StorageConfig Config;
 
 public:
 	StorageSystem() : CppUserModBase()

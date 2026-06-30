@@ -1,3 +1,10 @@
 {
-    "Database":"host=127.0.0.1 port=5432 dbname=theisle user=storage_component password=StorageAh!228"
+    "Database":         "host=127.0.0.1 port=5432 dbname=theisle user=storage_component password=StorageAh!228",
+    "SaveWaitTime":     60,
+    "GrowthRequirement":0.50,
+    "OverrideDino":     false,
+    "SameClass":        false,
+    "HealthCheck":      true,
+    "BloodCheck":       true,
+    "StaminaCheck":     true
 }

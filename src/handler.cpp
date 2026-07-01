@@ -1,5 +1,3 @@
-#pragma once
-
 #include <DynamicOutput/Output.hpp>
 #include <DynamicOutput/OutputDevice.hpp>
 

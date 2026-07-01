@@ -78,7 +78,7 @@ namespace StorageSystemComponent {
 		if(DataBaseConnector::SaveDino(SteamId, DinoId, Result, false)) {
 			IsleStructs::FSetHealthParams SetHealthParams{0};
 			Character->ProcessEvent(_SetHealth, &SetHealthParams);
-			IsleStructs::FSetWaitAndDestroyCorpseParams CorpseParams{2400};
+			IsleStructs::FSetWaitAndDestroyCorpseParams CorpseParams{120};
 			Character->ProcessEvent(_WaitAndDestroyCorpse, &CorpseParams);
 			Output::send(STR("Dino removed from game, owner: {}, dinoid: {}"), *SteamId, DinoId);
 		} else {

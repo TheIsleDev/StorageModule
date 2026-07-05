@@ -16,6 +16,8 @@
 #include "Structs/TheIsleStructs.hpp"
 #include "Structs/FunctionParamisator.hpp"
 
+#include "Reflection/_include_custom.hpp"
+
 #include "_structs.hpp"
 
 namespace StorageSystemComponent {
@@ -49,8 +51,6 @@ namespace StorageSystemComponent {
 	static IsleStructs::UTISaveManager* _TISaveManager{};
 
 	static UFunction* _TryToRespawn{};
-	static UFunction* _SetHealth{};
-	static UFunction* _DestroyCorpse{};
 
 	static FProperty* _FuncParamPropChatMode{};
 	static FProperty* _FuncParamPropMessage{};
@@ -63,11 +63,11 @@ namespace StorageSystemComponent {
 			if (!GameMode) return;
 		};
 
-		IsleStructs::APawn* Pawn = *PlayerControllerPawn->ContainerPtrToValuePtr<IsleStructs::APawn*>(Player);
+		APawn* Pawn = *PlayerControllerPawn->ContainerPtrToValuePtr<APawn*>(Player);
 		if (!Pawn || !Pawn->IsA(DinoClass)) return;
 
 		FString SteamID = *PlayerSteamID->ContainerPtrToValuePtr<FString>(Player);
-		IsleStructs::ATICharacterBase* Character = static_cast<IsleStructs::ATICharacterBase*>(Pawn);
+		ATICharacterBase* Character = static_cast<ATICharacterBase*>(Pawn);
 		int32 DinoID = *DinoClassID->ContainerPtrToValuePtr<int32>(Character);
 		// Some more requirements, you can even add them to settings
 		Output::send(STR("Attempt to save dino for owner: {}, dinoid: {}"), *SteamID, DinoID);
@@ -83,11 +83,10 @@ namespace StorageSystemComponent {
 
 		FString Result = *SecondParams.GetAddress<FString>(PlayerDataToString.ReturnValue);
 		if(DataBaseConnector::SaveDino(SteamID, DinoID, Result, false)) {
-			IsleStructs::FSetHealthParams SetHealthParams{0};
-			Character->ProcessEvent(_SetHealth, &SetHealthParams);
+			Character->SetHealth(0);
 			IsleStructs::FTryToRespawnParams SetTryToRespawnParams{Player, SteamID};
 			GameMode->ProcessEvent(_TryToRespawn, &SetTryToRespawnParams);
-			Character->ProcessEvent(_DestroyCorpse, {});
+			Character->DestroyCorpse();
 
 			Output::send(STR("Dino removed from game, owner: {}, dinoid: {}"), *SteamID, DinoID);
 		} else {
@@ -136,19 +135,18 @@ namespace StorageSystemComponent {
 		SecondParams.Set(AddSpawnRequest.bAddHud, true);
 		SecondParams.Set(AddSpawnRequest.bLoadSaved, true);
 
-		IsleStructs::APawn* Pawn = *PlayerControllerPawn->ContainerPtrToValuePtr<IsleStructs::APawn*>(Player);
+		APawn* Pawn = *PlayerControllerPawn->ContainerPtrToValuePtr<APawn*>(Player);
 		if (Pawn && Pawn->IsA(CharacterClass)) {
-			IsleStructs::ATICharacterBase* Character = static_cast<IsleStructs::ATICharacterBase*>(Pawn);
-			IsleStructs::FSetHealthParams SetHealthParams{0};
-			Character->ProcessEvent(_SetHealth, &SetHealthParams);
-			Character->ProcessEvent(_DestroyCorpse, {});
+			ATICharacterBase* Character = static_cast<ATICharacterBase*>(Pawn);
+			Character->SetHealth(0);
+			Character->DestroyCorpse();
 		}
 
 		IsleStructs::FTryToRespawnParams SetTryToRespawnParams{Player, SteamID};
 		GameMode->ProcessEvent(_TryToRespawn, &SetTryToRespawnParams);// Magic WORD! Sometimes you just have to believe me
 		GameMode->ProcessEvent(AddSpawnRequest.Function, SecondParams.Data());
 
-		if (!DataBaseConnector::ConfirmLoadDino(SteamID, DinoID)) {// For now I don't care for tracking load, if it really loaded or not. You can add later to check Id field on dino, its enough
+		if (!DataBaseConnector::ConfirmLoadDino(DinoID)) {// For now I don't care for tracking load, if it really loaded or not. You can add later to check Id field on dino, its enough
 			Output::send<LogLevel::Error>(STR("Failed to update dino status for owner: {}, dinoid: {}"), *SteamID, DinoID);
 		}
 		Output::send(STR("Loaded dino for owner: {}, dinoid: {}"), *SteamID, DinoID);
@@ -203,8 +201,6 @@ namespace StorageSystemComponent {
 		_TISaveManager = UObjectGlobals::StaticFindObject<IsleStructs::UTISaveManager*>(nullptr, nullptr, STR("/Script/TheIsle.Default__TISaveManager"), false);
 
 		_TryToRespawn = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TIGameModeBase:TryToRespawn"));
-		_SetHealth = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TICharacterBase:SetHealth"));// Safe way to kill it
-		_DestroyCorpse = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TICharacterBase:DestroyCorpse"));
 
 		GetChatMessage = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TIPlayerController:GetChatMessage"));
 		_FuncParamPropChatMode = GetChatMessage->GetPropertyByNameInChain(STR("ChatMode"));

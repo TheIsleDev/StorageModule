@@ -1,20 +1,14 @@
 #include <DynamicOutput/Output.hpp>
 #include <DynamicOutput/OutputDevice.hpp>
 
-#include "Unreal/FText.hpp"
 #include <Unreal/AActor.hpp>
 #include <Unreal/UObject.hpp>
+#include <Unreal/UObjectArray.hpp>
 #include <Unreal/UObjectGlobals.hpp>
 #include <Unreal/CoreUObject/UObject/UnrealType.hpp>
 #include <Unreal/Core/Containers/ContainerAllocationPolicies.hpp>
 
-#include "Containers/Array.hpp"
-#include "Containers/FString.hpp"
-#include "CoreUObject/UObject/Class.hpp"
-
 #include "DBLink/database.cpp"
-#include "Structs/TheIsleStructs.hpp"
-#include "Structs/FunctionParamisator.hpp"
 
 #include <Reflection/_include_custom.hpp>
 
@@ -28,27 +22,7 @@ namespace StorageSystemComponent {
 	static FProperty* PlayerSteamID{};
 
 	static UClass* DinoClass{};
-	static FProperty* DinoClassID{};
-
 	static UClass* CharacterClass{};
-
-	static UFunction* _GetCharacterData{};
-	static uint32 _GetCharacterData_BufferSize;
-	static FProperty* _GetCharacterData_PropCharacter{};
-	static FProperty* _GetCharacterData_PropForceSafe{};
-	static FProperty* _GetCharacterData_ReturnProperty{};
-
-	static UFunction* _PlayerDataToString{};
-	static uint32 _PlayerDataToString_BufferSize;
-	static FProperty* _PlayerDataToString_PropPlayerData{};
-	static FProperty* _PlayerDataToString_ReturnProperty{};
-
-	static StorageSystemConfiguration::DataOfGetCharacterData GetCharacterData{};
-	static StorageSystemConfiguration::DataOfPlayerDataToString PlayerDataToString{};
-	static StorageSystemConfiguration::DataOfStringToPlayerData StringToPlayerData{};
-	static StorageSystemConfiguration::DataOfAddSpawnRequest AddSpawnRequest{};
-
-	static IsleStructs::UTISaveManager* _TISaveManager{};
 
 	static FProperty* _FuncParamPropChatMode{};
 	static FProperty* _FuncParamPropMessage{};
@@ -59,22 +33,14 @@ namespace StorageSystemComponent {
 		APawn* Pawn = *PlayerControllerPawn->ContainerPtrToValuePtr<APawn*>(Player);
 		if (!Pawn || !Pawn->IsA(DinoClass)) return;
 
-		FString SteamID = *PlayerSteamID->ContainerPtrToValuePtr<FString>(Player);
+		FString SteamID = Player->GetSteamId();
 		ATICharacterBase* Character = static_cast<ATICharacterBase*>(Pawn);
-		int32 DinoID = *DinoClassID->ContainerPtrToValuePtr<int32>(Character);
+		int32 DinoID = Character->GetID();
 		// Some more requirements, you can even add them to settings
 		RC::Output::send(STR("Attempt to save dino for owner: {}, dinoid: {}"), *SteamID, DinoID);
 
-		StructsParams::FProcessEventParams FirstParams(GetCharacterData.Function, GetCharacterData.BufferSize);
-		FirstParams.Set(GetCharacterData.Character, Character);
-		FirstParams.Set(GetCharacterData.bForceSafe, false);
-		_TISaveManager->ProcessEvent(GetCharacterData.Function, FirstParams.Data());
-
-		StructsParams::FProcessEventParams SecondParams(PlayerDataToString.Function, PlayerDataToString.BufferSize);
-		SecondParams.CopyFromAddress(SecondParams.Data(), PlayerDataToString.PlayerData, FirstParams.GetAddress<void>(GetCharacterData.ReturnValue));
-		_TISaveManager->ProcessEvent(PlayerDataToString.Function, SecondParams.Data());
-
-		FString Result = *SecondParams.GetAddress<FString>(PlayerDataToString.ReturnValue);
+		FTIPlayerData PlayerData = UTISaveManager::GetCharacterData(Character, false);
+		FString Result = UTISaveManager::PlayerDataToString(PlayerData);
 		if(DataBaseConnector::SaveDino(SteamID, DinoID, Result, false)) {
 			Character->SetHealth(0);
 			GameMode->TryToRespawn(Player, SteamID);
@@ -100,29 +66,20 @@ namespace StorageSystemComponent {
 		};
 
 		// You can add here checks later for same dino type and etc.
-		StructsParams::FProcessEventParams FirstParams(StringToPlayerData.Function, StringToPlayerData.BufferSize);
-		FirstParams.Set(StringToPlayerData.String, Requested);
-		_TISaveManager->ProcessEvent(StringToPlayerData.Function, FirstParams.Data());
+		FTIPlayerData PlayerData = UTISaveManager::StringToPlayerData(Requested);
 
-		void* PlayerData = FirstParams.GetAddress<void>(StringToPlayerData.ReturnValue);
-		void* Class = FirstParams.GetAddressInContainer<void>(PlayerData, StringToPlayerData.PlayerData_Class);
-		void* Location = FirstParams.GetAddressInContainer<void>(PlayerData, StringToPlayerData.PlayerData_Location);
-		void* CustomizedData = FirstParams.GetAddressInContainer<void>(PlayerData, StringToPlayerData.PlayerData_CustomizedData);
-	
-		StructsParams::FProcessEventParams SecondParams(AddSpawnRequest.Function, AddSpawnRequest.BufferSize);
-		void* Container = SecondParams.GetAddress<void>(AddSpawnRequest.SpawnData);
-		SecondParams.SetInContainer(Container, AddSpawnRequest.SpawnData_Controller, Player);
-		SecondParams.SetInContainer(Container, AddSpawnRequest.SpawnData_SteamId, SteamID);
-		SecondParams.CopyFromAddress(Container, AddSpawnRequest.SpawnData_Class, Class);
-		SecondParams.SetInContainer(Container, AddSpawnRequest.SpawnData_bKeepActualLoc, false);// Only this one is safe to change out of all bools
-		SecondParams.SetInContainer(Container, AddSpawnRequest.SpawnData_bLoadOnly, false);// DO | DO | DO
-		SecondParams.SetInContainer(Container, AddSpawnRequest.SpawnData_bDefaultSpawn, false);// NOT | NOT | NOT
-		SecondParams.CopyFromAddress(Container, AddSpawnRequest.SpawnData_SpawnLocation, Location);
-		SecondParams.CopyFromAddress(Container, AddSpawnRequest.SpawnData_CustomizerData, CustomizedData);
-		SecondParams.SetInContainer(Container, AddSpawnRequest.SpawnData_bUseQuickRespawn, false);// REMOVE | ASK QUESTIONS | TRY TO FIGURE OUT WHY
-		SecondParams.CopyFromAddress(Container, AddSpawnRequest.SpawnData_PlayerData, PlayerData);
-		SecondParams.Set(AddSpawnRequest.bAddHud, true);
-		SecondParams.Set(AddSpawnRequest.bLoadSaved, true);
+		FTISpawnData SpawnData;
+		SpawnData.New();
+		SpawnData.GetController() = Player;
+		SpawnData.GetSteamId() = SteamID;
+		SpawnData.GetClass() = PlayerData.GetClass();
+		SpawnData.GetbKeepActualLoc() = false;// Only this one is safe to change out of all bools
+		SpawnData.GetbLoadOnly() = false;// DO | DO | DO
+		SpawnData.GetbDefaultSpawn() = false;// NOT | NOT | NOT
+		SpawnData.GetSpawnLocation() = PlayerData.GetLocation();
+		SpawnData.GetCustomizerData() = PlayerData.GetCustomizedData();
+		SpawnData.GetbUseQuickRespawn() = false;// REMOVE | ASK QUESTIONS | TRY TO FIGURE OUT WHY
+		SpawnData.GetPlayerData() = PlayerData;
 
 		APawn* Pawn = *PlayerControllerPawn->ContainerPtrToValuePtr<APawn*>(Player);
 		if (Pawn && Pawn->IsA(CharacterClass)) {
@@ -132,7 +89,7 @@ namespace StorageSystemComponent {
 		}
 
 		GameMode->TryToRespawn(Player, SteamID);// Magic WORD! Sometimes you just have to believe me
-		GameMode->ProcessEvent(AddSpawnRequest.Function, SecondParams.Data());
+		GameMode->AddSpawnRequest(SpawnData, true, true);
 
 		if (!DataBaseConnector::ConfirmLoadDino(DinoID)) {// For now I don't care for tracking load, if it really loaded or not. You can add later to check Id field on dino, its enough
 			RC::Output::send<RC::LogLevel::Error>(STR("Failed to update dino status for owner: {}, dinoid: {}"), *SteamID, DinoID);
@@ -173,18 +130,7 @@ namespace StorageSystemComponent {
 		PlayerSteamID = PlayerControllerBaseClass->GetPropertyByNameInChain(STR("SteamId"));
 
 		DinoClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/TheIsle.TIDinosaurBase"));
-		DinoClassID = DinoClass->GetPropertyByNameInChain(STR("ID"));
-
 		CharacterClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/TheIsle.TICharacterBase"));
-
-		GetCharacterData.Function = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TISaveManager:GetCharacterData"));
-		GetCharacterData.Initialize();
-		PlayerDataToString.Function = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TISaveManager:PlayerDataToString"));
-		PlayerDataToString.Initialize();
-		StringToPlayerData.Function = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TISaveManager:StringToPlayerData"));
-		StringToPlayerData.Initialize();
-
-		_TISaveManager = UObjectGlobals::StaticFindObject<IsleStructs::UTISaveManager*>(nullptr, nullptr, STR("/Script/TheIsle.Default__TISaveManager"), false);
 
 		GetChatMessage = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TIPlayerController:GetChatMessage"));
 		_FuncParamPropChatMode = GetChatMessage->GetPropertyByNameInChain(STR("ChatMode"));

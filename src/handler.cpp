@@ -8,6 +8,7 @@
 #include <Unreal/CoreUObject/UObject/UnrealType.hpp>
 #include <Unreal/Core/Containers/ContainerAllocationPolicies.hpp>
 
+#include "Containers/FString.hpp"
 #include "DBLink/database.cpp"
 
 #include <Reflection/_include_custom.hpp>
@@ -17,38 +18,52 @@
 namespace StorageSystemComponent {
 	using namespace RC::Unreal;
 
-	static UClass* PlayerControllerBaseClass{};
-	static FProperty* PlayerControllerPawn{};
-	static FProperty* PlayerSteamID{};
+	StorageSystemConfiguration::StorageConfig LoadedConfig;
 
 	static UClass* DinoClass{};
-	static UClass* CharacterClass{};
 
-	static FProperty* _FuncParamPropChatMode{};
-	static FProperty* _FuncParamPropMessage{};
+	static FProperty* GetChatMessagePropChatMode{};
+	static FProperty* GetChatMessagePropMessage{};
+
+	auto doChecks(ATIDinosaurBase* Dinosaur) -> bool {
+		if (LoadedConfig.HealthCheck) {
+			if (1 > Dinosaur->FGetHealth() / Dinosaur->GetMaxHealth()) return false;
+		}
+		if (LoadedConfig.StaminaCheck) {
+			if (1 > Dinosaur->FGetStamina() / Dinosaur->GetMaxStamina()) return false;
+
+		}
+		if (LoadedConfig.BloodCheck) {
+			if (1 > Dinosaur->FGetBlood() / Dinosaur->GetMaxBlood()) return false;
+		}
+		return true;
+	}
 
 	auto SaveDino(ATIPlayerController* Player) -> void {
 		static ATIGameModeBase* GameMode = static_cast<ATIGameModeBase*>(UObjectGlobals::FindFirstOf(STR("BP_SurvivalGameMode_C")));
 
-		APawn* Pawn = *PlayerControllerPawn->ContainerPtrToValuePtr<APawn*>(Player);
+		APawn* Pawn = Player->GetPawn();
 		if (!Pawn || !Pawn->IsA(DinoClass)) return;
 
-		FString SteamID = Player->GetSteamId();
-		ATICharacterBase* Character = static_cast<ATICharacterBase*>(Pawn);
-		int32 DinoID = Character->GetID();
-		// Some more requirements, you can even add them to settings
-		RC::Output::send(STR("Attempt to save dino for owner: {}, dinoid: {}"), *SteamID, DinoID);
+		ATIDinosaurBase* Dinosaur = static_cast<ATIDinosaurBase*>(Pawn);
+		if (LoadedConfig.GrowthRequirementSave > Dinosaur->GetGrowth()) return;
 
-		FTIPlayerData PlayerData = UTISaveManager::GetCharacterData(Character, false);
+		if (!doChecks(Dinosaur)) return;
+
+		FString SteamID = Player->GetSteamId();
+		int32 DinoID = Dinosaur->GetID();
+		RC::Output::send(STR("Attempt to save Dinosaur for SteamID: {}, DinoID: {}"), *SteamID, DinoID);
+
+		FTIPlayerData PlayerData = UTISaveManager::GetCharacterData(Dinosaur, false);
 		FString Result = UTISaveManager::PlayerDataToString(PlayerData);
 		if(DataBaseConnector::SaveDino(SteamID, DinoID, Result, false)) {
-			Character->SetHealth(0);
+			Dinosaur->SetHealth(0);
 			GameMode->TryToRespawn(Player, SteamID);
-			Character->DestroyCorpse();
+			Dinosaur->DestroyCorpse();
 
-			RC::Output::send(STR("Dino removed from game, owner: {}, dinoid: {}"), *SteamID, DinoID);
+			RC::Output::send(STR("Dinosaur removed from game, SteamID: {}, DinoID: {}"), *SteamID, DinoID);
 		} else {
-			RC::Output::send<RC::LogLevel::Error>(STR("Failed to save dino for owner: {}, dinoid: {}"), *SteamID, DinoID);
+			RC::Output::send<RC::LogLevel::Error>(STR("Failed to save dino for SteamID: {}, DinoID: {}"), *SteamID, DinoID);
 		}
 	}
 
@@ -56,24 +71,37 @@ namespace StorageSystemComponent {
 	auto LoadDino(ATIPlayerController* Player, int32 DinoID) -> void {
 		static ATIGameModeBase* GameMode = static_cast<ATIGameModeBase*>(UObjectGlobals::FindFirstOf(STR("BP_SurvivalGameMode_C")));
 
-		FString SteamID = *PlayerSteamID->ContainerPtrToValuePtr<FString>(Player);
-		RC::Output::send(STR("Attempt to load dino for owner: {}, dinoid: {}"), *SteamID, DinoID);
+		FString SteamID = Player->GetSteamId();
+		RC::Output::send(STR("Attempt to load dino for SteamID: {}, DinoID: {}"), *SteamID, DinoID);
+
+		APawn* Pawn = Player->GetPawn();
+		ATIDinosaurBase* Dinosaur{};
+		if (Pawn && Pawn->IsA(DinoClass)) {
+			Dinosaur = static_cast<ATIDinosaurBase*>(Pawn);
+			if (Dinosaur->GetGrowth() > LoadedConfig.GrowthRequirementLoad) return;
+		}
+
+		if (Dinosaur && !doChecks(Dinosaur)) return;
 
 		FString Requested;
 		if(!DataBaseConnector::LoadDino(SteamID, DinoID, Requested)) {
-			RC::Output::send<RC::LogLevel::Error>(STR("Failed to load dino for owner: {}, dinoid: {}"), *SteamID, DinoID);
+			RC::Output::send<RC::LogLevel::Error>(STR("Failed to load dino for SteamID: {}, DinoID: {}"), *SteamID, DinoID);
 			return;
 		};
 
 		// You can add here checks later for same dino type and etc.
 		FTIPlayerData PlayerData = UTISaveManager::StringToPlayerData(Requested);
 
+		if (LoadedConfig.SameClass && Dinosaur) {
+			if (PlayerData.GetClass() != FString(Dinosaur->GetClassPrivate()->GetPathName())) return;
+		}
+
 		FTISpawnData SpawnData;
 		SpawnData.New();
 		SpawnData.GetController() = Player;
 		SpawnData.GetSteamId() = SteamID;
 		SpawnData.GetClass() = PlayerData.GetClass();
-		SpawnData.GetbKeepActualLoc() = false;// Only this one is safe to change out of all bools
+		SpawnData.GetbKeepActualLoc() = LoadedConfig.PreserveLoc;// Only this one is safe to change out of all bools
 		SpawnData.GetbLoadOnly() = false;// DO | DO | DO
 		SpawnData.GetbDefaultSpawn() = false;// NOT | NOT | NOT
 		SpawnData.GetSpawnLocation() = PlayerData.GetLocation();
@@ -81,27 +109,27 @@ namespace StorageSystemComponent {
 		SpawnData.GetbUseQuickRespawn() = false;// REMOVE | ASK QUESTIONS | TRY TO FIGURE OUT WHY
 		SpawnData.GetPlayerData() = PlayerData;
 
-		APawn* Pawn = *PlayerControllerPawn->ContainerPtrToValuePtr<APawn*>(Player);
-		if (Pawn && Pawn->IsA(CharacterClass)) {
-			ATICharacterBase* Character = static_cast<ATICharacterBase*>(Pawn);
-			Character->SetHealth(0);
-			Character->DestroyCorpse();
+		if (Dinosaur) {
+			if (LoadedConfig.PreserveLoc) SpawnData.GetSpawnLocation() = Dinosaur->K2_GetActorLocation();
+
+			Dinosaur->SetHealth(0);
+			Dinosaur->DestroyCorpse();
 		}
 
 		GameMode->TryToRespawn(Player, SteamID);// Magic WORD! Sometimes you just have to believe me
 		GameMode->AddSpawnRequest(SpawnData, true, true);
 
 		if (!DataBaseConnector::ConfirmLoadDino(DinoID)) {// For now I don't care for tracking load, if it really loaded or not. You can add later to check Id field on dino, its enough
-			RC::Output::send<RC::LogLevel::Error>(STR("Failed to update dino status for owner: {}, dinoid: {}"), *SteamID, DinoID);
+			RC::Output::send<RC::LogLevel::Error>(STR("Failed to update dino status for SteamID: {}, DinoID: {}"), *SteamID, DinoID);
 		}
-		RC::Output::send(STR("Loaded dino for owner: {}, dinoid: {}"), *SteamID, DinoID);
+		RC::Output::send(STR("Loaded dino for SteamID: {}, DinoID: {}"), *SteamID, DinoID);
 	}
 
 	auto HandleChatMessage(UnrealScriptFunctionCallableContext& FuncContext) -> void {
 		auto FuncLocals = FuncContext.TheStack.Locals();
-		IsleStructs::EChatMode ChatMode = *_FuncParamPropChatMode->ContainerPtrToValuePtr<IsleStructs::EChatMode>(FuncLocals);
-		if (ChatMode != IsleStructs::EChatMode::Spatial) return;// Early return, it's not a 32bit, game one thread,
-		FText* FTextMessage = _FuncParamPropMessage->ContainerPtrToValuePtr<FText>(FuncLocals);
+		EChatMode ChatMode = *GetChatMessagePropChatMode->ContainerPtrToValuePtr<EChatMode>(FuncLocals);
+		if (ChatMode != EChatMode::Spatial) return;// Early return, it's not a 32bit, game one thread,
+		FText* FTextMessage = GetChatMessagePropMessage->ContainerPtrToValuePtr<FText>(FuncLocals);
 		RC::StringType Message = FTextMessage->ToString();
 		if (!Message.starts_with(STR("!"))) return;// server side render, but I still have opti flashbacks
 
@@ -109,6 +137,7 @@ namespace StorageSystemComponent {
 		if (Message == STR("!store")) {
 			SaveDino(static_cast<ATIPlayerController*>(FuncContext.Context));
 		} else if (Message.starts_with(Prefix)) {
+			if (!LoadedConfig.OverrideDino) return;
 			RC::StringType IdString = Message.substr(FCString::Strlen(Prefix));
 			int32 DinoID;// Dont judge, 3 lines below this one is just LLM slopcode.
 			auto Utf8 = RC::to_string(IdString);
@@ -121,21 +150,19 @@ namespace StorageSystemComponent {
 	static UFunction* GetChatMessage{};
 	static int32_t HookID{};
 	auto Initialize(StorageSystemConfiguration::StorageConfig Config) -> void {
-		if (!DataBaseConnector::Initialize(Config.Database)) {
+		LoadedConfig = Config;
+		if (!DataBaseConnector::Initialize(LoadedConfig.Database)) {
 			RC::Output::send<RC::LogLevel::Error>(STR("DB connection failed, con string: {}"), RC::to_wstring(Config.Database));
 		} else DataBaseConnector::PrepareStorage();
 
-		PlayerControllerBaseClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/TheIsle.TIPlayerController"));
-		PlayerControllerPawn = PlayerControllerBaseClass->GetPropertyByNameInChain(STR("Pawn"));
-		PlayerSteamID = PlayerControllerBaseClass->GetPropertyByNameInChain(STR("SteamId"));
-
 		DinoClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/TheIsle.TIDinosaurBase"));
-		CharacterClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/TheIsle.TICharacterBase"));
 
+		// I hope in future I can find a way to skip this dummy Prop lookup and get lock and ready direct values out of the box
 		GetChatMessage = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TIPlayerController:GetChatMessage"));
-		_FuncParamPropChatMode = GetChatMessage->GetPropertyByNameInChain(STR("ChatMode"));
-		_FuncParamPropMessage = GetChatMessage->GetPropertyByNameInChain(STR("NoFilterMsg"));
+		GetChatMessagePropChatMode = GetChatMessage->GetPropertyByNameInChain(STR("ChatMode"));
+		GetChatMessagePropMessage = GetChatMessage->GetPropertyByNameInChain(STR("NoFilterMsg"));
 
+		// Maybe precallback + clean message later? idk... I think I need special handler for chat commands to skip resending them to other clients.
 		HookID = GetChatMessage->RegisterPostHook(
 			[](UnrealScriptFunctionCallableContext& FuncContext, void*) -> void {HandleChatMessage(FuncContext);
 		});

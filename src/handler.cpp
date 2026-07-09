@@ -13,6 +13,7 @@
 
 #include <Reflection/_include_custom.hpp>
 
+#include "UnrealCoreStructs.hpp"
 #include "_structs.hpp"
 
 namespace StorageSystemComponent {
@@ -89,29 +90,34 @@ namespace StorageSystemComponent {
 			return;
 		};
 
-		// You can add here checks later for same dino type and etc.
 		FTIPlayerData PlayerData = UTISaveManager::StringToPlayerData(Requested);
-
 		if (LoadedConfig.SameClass && Dinosaur) {
 			if (PlayerData.GetClass() != FString(Dinosaur->GetClassPrivate()->GetPathName())) return;
 		}
 
 		FTISpawnData SpawnData;
 		SpawnData.New();
+		FVector Location{};
+		if (LoadedConfig.PreserveLoc) {
+			Location = Dinosaur->K2_GetActorLocation();
+			PlayerData.GetLocation() = Location;
+		}
+		else Location = PlayerData.GetLocation();
+
 		SpawnData.GetController() = Player;
 		SpawnData.GetSteamId() = SteamID;
 		SpawnData.GetClass() = PlayerData.GetClass();
 		SpawnData.GetbKeepActualLoc() = LoadedConfig.PreserveLoc;// Only this one is safe to change out of all bools
 		SpawnData.GetbLoadOnly() = false;// DO | DO | DO
 		SpawnData.GetbDefaultSpawn() = false;// NOT | NOT | NOT
-		SpawnData.GetSpawnLocation() = PlayerData.GetLocation();
+		SpawnData.GetSpawnLocation() = Location;
 		SpawnData.GetCustomizerData() = PlayerData.GetCustomizedData();
 		SpawnData.GetbUseQuickRespawn() = false;// REMOVE | ASK QUESTIONS | TRY TO FIGURE OUT WHY
+		SpawnData.GetbPreserveSpawnLocation() = LoadedConfig.PreserveLoc;// Safe too
 		SpawnData.GetPlayerData() = PlayerData;
 
 		if (Dinosaur) {
-			if (LoadedConfig.PreserveLoc) SpawnData.GetSpawnLocation() = Dinosaur->K2_GetActorLocation();
-
+			DataBaseConnector::DinoDied(Dinosaur->GetID());
 			Dinosaur->SetHealth(0);
 			Dinosaur->DestroyCorpse();
 		}

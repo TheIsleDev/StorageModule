@@ -4,7 +4,7 @@
 	"GrowthRequirementSave":0.30,
 	"GrowthRequirementLoad":0.30,
 	"OverrideDino":			true,
-	"PreserveLoc":			true,
+	"PreserveLoc":			false,
 	"SameClass":			true,
 	"HealthCheck":			true,
 	"BloodCheck":			true,

@@ -26,16 +26,25 @@ namespace StorageSystemComponent {
 	static FProperty* GetChatMessagePropChatMode{};
 	static FProperty* GetChatMessagePropMessage{};
 
-	auto doChecks(ATIDinosaurBase* Dinosaur) -> bool {
+	auto doChecks(ATIDinosaurBase* Dinosaur, ATIPlayerController* Player) -> bool {
 		if (LoadedConfig.HealthCheck) {
-			if (1 > Dinosaur->FGetHealth() / Dinosaur->GetMaxHealth()) return false;
+			if (1 > Dinosaur->FGetHealth() / Dinosaur->GetMaxHealth()) {
+				Player->ClientShowNotification(FText(STR("You need full health")));
+				return false;
+			}
 		}
 		if (LoadedConfig.StaminaCheck) {
-			if (1 > Dinosaur->FGetStamina() / Dinosaur->GetMaxStamina()) return false;
+			if (1 > Dinosaur->FGetStamina() / Dinosaur->GetMaxStamina()) {
+				Player->ClientShowNotification(FText(STR("You need full stamina")));
+				return false;
+			}
 
 		}
 		if (LoadedConfig.BloodCheck) {
-			if (1 > Dinosaur->FGetBlood() / Dinosaur->GetMaxBlood()) return false;
+			if (1 > Dinosaur->FGetBlood() / Dinosaur->GetMaxBlood()) {
+				Player->ClientShowNotification(FText(STR("You need full blood")));
+				return false;
+			}
 		}
 		return true;
 	}
@@ -47,9 +56,12 @@ namespace StorageSystemComponent {
 		if (!Pawn || !Pawn->IsA(DinoClass)) return;
 
 		ATIDinosaurBase* Dinosaur = static_cast<ATIDinosaurBase*>(Pawn);
-		if (LoadedConfig.GrowthRequirementSave > Dinosaur->GetGrowth()) return;
+		if (LoadedConfig.GrowthRequirementSave > Dinosaur->GetGrowth()) {
+			Player->ClientShowNotification(FText(STR("Growth requirement not meet")));
+			return;
+		};
 
-		if (!doChecks(Dinosaur)) return;
+		if (!doChecks(Dinosaur, Player)) return;
 
 		FString SteamID = Player->GetSteamId();
 		int32 DinoID = Dinosaur->GetID();
@@ -58,6 +70,7 @@ namespace StorageSystemComponent {
 		FTIPlayerData PlayerData = UTISaveManager::GetCharacterData(Dinosaur, false);
 		FString Result = UTISaveManager::PlayerDataToString(PlayerData);
 		if(DataBaseConnector::SaveDino(SteamID, DinoID, Result, false)) {
+			Player->ClientShowNotification(FText(fmt::format(STR("Saved DinoID: {}"), DinoID)));
 			Dinosaur->SetHealth(0);
 			GameMode->TryToRespawn(Player, SteamID);
 			Dinosaur->DestroyCorpse();
@@ -79,10 +92,13 @@ namespace StorageSystemComponent {
 		ATIDinosaurBase* Dinosaur{};
 		if (Pawn && Pawn->IsA(DinoClass)) {
 			Dinosaur = static_cast<ATIDinosaurBase*>(Pawn);
-			if (Dinosaur->GetGrowth() > LoadedConfig.GrowthRequirementLoad) return;
+			if (Dinosaur->GetGrowth() > LoadedConfig.GrowthRequirementLoad) {
+				Player->ClientShowNotification(FText(STR("Growth requirement not meet")));
+				return;
+			};
 		}
 
-		if (Dinosaur && !doChecks(Dinosaur)) return;
+		if (Dinosaur && !doChecks(Dinosaur, Player)) return;
 
 		FString Requested;
 		if(!DataBaseConnector::LoadDino(SteamID, DinoID, Requested)) {
@@ -92,7 +108,10 @@ namespace StorageSystemComponent {
 
 		FTIPlayerData PlayerData = UTISaveManager::StringToPlayerData(Requested);
 		if (LoadedConfig.SameClass && Dinosaur) {
-			if (PlayerData.GetClass() != FString(Dinosaur->GetClassPrivate()->GetPathName())) return;
+			if (PlayerData.GetClass() != FString(Dinosaur->GetClassPrivate()->GetPathName())) {
+				Player->ClientShowNotification(FText(STR("Only same type of dino")));
+				return;
+			};
 		}
 
 		FTISpawnData SpawnData;
@@ -124,6 +143,7 @@ namespace StorageSystemComponent {
 
 		GameMode->TryToRespawn(Player, SteamID);// Magic WORD! Sometimes you just have to believe me
 		GameMode->AddSpawnRequest(SpawnData, true, true);
+		Player->ClientShowNotification(FText(fmt::format(STR("Loaded DinoID: {}"), DinoID)));
 
 		if (!DataBaseConnector::ConfirmLoadDino(DinoID)) {// For now I don't care for tracking load, if it really loaded or not. You can add later to check Id field on dino, its enough
 			RC::Output::send<RC::LogLevel::Error>(STR("Failed to update dino status for SteamID: {}, DinoID: {}"), *SteamID, DinoID);

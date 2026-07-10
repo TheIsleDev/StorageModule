@@ -8,18 +8,16 @@
 #include <Unreal/CoreUObject/UObject/UnrealType.hpp>
 #include <Unreal/Core/Containers/ContainerAllocationPolicies.hpp>
 
-#include "Containers/FString.hpp"
 #include "DBLink/database.cpp"
 
 #include <Reflection/_include_custom.hpp>
 
-#include "UnrealCoreStructs.hpp"
 #include "_structs.hpp"
 
 namespace StorageSystemComponent {
 	using namespace RC::Unreal;
 
-	StorageSystemConfiguration::StorageConfig LoadedConfig;
+	static StorageSystemConfiguration::StorageConfig LoadedConfig;
 
 	static UClass* DinoClass{};
 

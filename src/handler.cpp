@@ -8,8 +8,7 @@
 #include <Unreal/CoreUObject/UObject/UnrealType.hpp>
 #include <Unreal/Core/Containers/ContainerAllocationPolicies.hpp>
 
-#include "DBLink/database.cpp"
-
+#include <DBLink/database.cpp>
 #include <Reflection/_include_custom.hpp>
 
 #include "_structs.hpp"

@@ -13,6 +13,8 @@
 
 #include "_structs.hpp"
 
+// Declare local debugging if you want more logging on test run
+//#define LOCAL_DEBUGGING
 namespace StorageSystemComponent {
 	using namespace RC::Unreal;
 
@@ -25,20 +27,20 @@ namespace StorageSystemComponent {
 
 	auto doChecks(ATIDinosaurBase* Dinosaur, ATIPlayerController* Player) -> bool {
 		if (LoadedConfig.HealthCheck) {
-			if (1 > Dinosaur->FGetHealth() / Dinosaur->GetMaxHealth()) {
+			if (Dinosaur->FGetHealth() != Dinosaur->GetMaxHealth()) {
 				Player->ClientShowNotification(FText(STR("You need full health")));
 				return false;
 			}
 		}
 		if (LoadedConfig.StaminaCheck) {
-			if (1 > Dinosaur->FGetStamina() / Dinosaur->GetMaxStamina()) {
+			if (Dinosaur->FGetStamina() != Dinosaur->GetMaxStamina()) {
 				Player->ClientShowNotification(FText(STR("You need full stamina")));
 				return false;
 			}
 
 		}
 		if (LoadedConfig.BloodCheck) {
-			if (1 > Dinosaur->FGetBlood() / Dinosaur->GetMaxBlood()) {
+			if (Dinosaur->FGetBlood() != Dinosaur->GetMaxBlood()) {
 				Player->ClientShowNotification(FText(STR("You need full blood")));
 				return false;
 			}
@@ -62,7 +64,9 @@ namespace StorageSystemComponent {
 
 		FString SteamID = Player->GetSteamId();
 		int32 DinoID = Dinosaur->GetID();
+#ifdef LOCAL_DEBUGGING
 		RC::Output::send(STR("Attempt to save Dinosaur for SteamID: {}, DinoID: {}"), *SteamID, DinoID);
+#endif
 
 		FTIPlayerData PlayerData = UTISaveManager::GetCharacterData(Dinosaur, false);
 		FString Result = UTISaveManager::PlayerDataToString(PlayerData);
@@ -72,9 +76,13 @@ namespace StorageSystemComponent {
 			GameMode->TryToRespawn(Player, SteamID);
 			Dinosaur->DestroyCorpse();
 
+#ifdef LOCAL_DEBUGGING
 			RC::Output::send(STR("Dinosaur removed from game, SteamID: {}, DinoID: {}"), *SteamID, DinoID);
+#endif
 		} else {
+#ifdef LOCAL_DEBUGGING
 			RC::Output::send<RC::LogLevel::Error>(STR("Failed to save dino for SteamID: {}, DinoID: {}"), *SteamID, DinoID);
+#endif
 		}
 	}
 
@@ -83,7 +91,9 @@ namespace StorageSystemComponent {
 		static ATIGameModeBase* GameMode = static_cast<ATIGameModeBase*>(UObjectGlobals::FindFirstOf(STR("BP_SurvivalGameMode_C")));
 
 		FString SteamID = Player->GetSteamId();
+#ifdef LOCAL_DEBUGGING
 		RC::Output::send(STR("Attempt to load dino for SteamID: {}, DinoID: {}"), *SteamID, DinoID);
+#endif
 
 		APawn* Pawn = Player->GetPawn();
 		ATIDinosaurBase* Dinosaur{};
@@ -99,7 +109,9 @@ namespace StorageSystemComponent {
 
 		FString Requested;
 		if(!DataBaseConnector::LoadDino(SteamID, DinoID, Requested)) {
+#ifdef LOCAL_DEBUGGING
 			RC::Output::send<RC::LogLevel::Error>(STR("Failed to load dino for SteamID: {}, DinoID: {}"), *SteamID, DinoID);
+#endif
 			return;
 		};
 
@@ -143,9 +155,13 @@ namespace StorageSystemComponent {
 		Player->ClientShowNotification(FText(fmt::format(STR("Loaded DinoID: {}"), DinoID)));
 
 		if (!DataBaseConnector::ConfirmLoadDino(DinoID)) {// For now I don't care for tracking load, if it really loaded or not. You can add later to check Id field on dino, its enough
+#ifdef LOCAL_DEBUGGING
 			RC::Output::send<RC::LogLevel::Error>(STR("Failed to update dino status for SteamID: {}, DinoID: {}"), *SteamID, DinoID);
+#endif
 		}
+#ifdef LOCAL_DEBUGGING
 		RC::Output::send(STR("Loaded dino for SteamID: {}, DinoID: {}"), *SteamID, DinoID);
+#endif
 	}
 
 	auto HandleChatMessage(UnrealScriptFunctionCallableContext& FuncContext) -> void {
@@ -174,9 +190,10 @@ namespace StorageSystemComponent {
 	static int32_t HookID{};
 	auto Initialize(StorageSystemConfiguration::StorageConfig Config) -> void {
 		LoadedConfig = Config;
-		if (!DataBaseConnector::Initialize(LoadedConfig.Database)) {
-			RC::Output::send<RC::LogLevel::Error>(STR("DB connection failed, con string: {}"), RC::to_wstring(Config.Database));
-		} else DataBaseConnector::PrepareStorage();
+		if (DataBaseConnector::Initialize(Config.Database)) DataBaseConnector::PrepareStorage();
+#ifdef LOCAL_DEBUGGING
+		else RC::Output::send<RC::LogLevel::Error>(STR("DB connection failed, con string: {}"), RC::to_wstring(Config.Database));
+#endif
 
 		DinoClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/TheIsle.TIDinosaurBase"));
 

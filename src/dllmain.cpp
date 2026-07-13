@@ -12,7 +12,7 @@ private:
 public:
 	StorageSystem() : CppUserModBase() {
 		ModName = STR("Storage");
-		ModVersion = STR("1.0");
+		ModVersion = STR("1.0.1");
 		ModDescription = STR("Hehe");
 		ModAuthors = STR("Shiza");
 	}

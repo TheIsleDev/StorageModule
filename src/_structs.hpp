@@ -14,5 +14,6 @@ namespace StorageSystemConfiguration {
 		bool HealthCheck{false};
 		bool BloodCheck{false};
 		bool StaminaCheck{false};
+		bool LockOnLoad{false};// If dino loaded it will set to true it playing in status, so you can't load it again
 	};
 }

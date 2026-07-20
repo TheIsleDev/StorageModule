@@ -8,5 +8,6 @@
 	"SameClass":			true,
 	"HealthCheck":			true,
 	"BloodCheck":			true,
-	"StaminaCheck":			true
+	"StaminaCheck":			true,
+	"LockOnLoad":			true
 }

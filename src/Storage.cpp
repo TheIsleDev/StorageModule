@@ -39,6 +39,8 @@ bool StorageSystem::CreateHelpers() {
 		Command.bIsDeveloperBasic = false;
 		Command.bIsAdmin = true;
 	}
+	// Оно кста не регает команды, там чтоль хардкода дохуя? Я пытался поискать где строит их структуру + кастомное описание под поля, но ничего не нашел.
+	// Это лютое количество хардкода + 0 синхронизации с сервером, сука взяли бы меня девом я бы им все это говно переделал... мое любимое занятие! Есть кал!
 	if (!FoundStore) Commands.Add(FCommandInfo{FString(STR("store")), FString(STR("Stores your dino")), true, true, true});
 	if (!FoundLoad) Commands.Add(FCommandInfo{FString(STR("load")), FString(STR("Loads your dino")), true, true, true});
 	return true;
@@ -86,6 +88,7 @@ void StorageSystem::on_unreal_init() {
 void StorageSystem::HandleExecuteCommand(UnrealScriptFunctionCallableContext& FuncContext) {
 	ServerExecuteChatCommandData* Data = std::bit_cast<ServerExecuteChatCommandData*>(FuncContext.TheStack.Locals());
 
+	// Команды лишь дают инфу после слеша, из плюсов они не пишутся в чат сами по себе и реже тригерят этот хандлер
 	if (Data->CommandLine == FString(STR("store"))) {
 		StoreDino(static_cast<ATIPlayerController*>(FuncContext.Context));
 	} else if (Data->CommandLine.StartsWith(FString(STR("load ")))) {

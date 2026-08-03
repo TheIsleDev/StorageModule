@@ -2,11 +2,47 @@
 // Declare local debugging if you want more logging on test run
 //#define LOCAL_DEBUGGING
 
+#include "Hooks/Hooks.hpp"
 #include <TheIsleHelpers/ConfigReader.hpp>
 #include <TheIsle/APawn.hpp>
 #include <TheIsle/ATIGameModeBase.hpp>
+#include <TheIsle/UTICommandManager.hpp>
 #include <TheIsle/_simple_structs.hpp>
 #include <Storage.hpp>
+
+
+bool StorageSystem::CreateHelpers() {
+	static int TicksFired = 0;
+	static constexpr int TickRate{300};
+
+	if (++TicksFired < TickRate) return false;
+	TicksFired = 0;
+
+	GameMode = static_cast<ATIGameModeBase*>(UObjectGlobals::FindFirstOf(STR("BP_SurvivalGameMode_C")));
+	if (!GameMode) return false;
+
+	UTICommandManager* CommandsHolder = GameMode->CommandExecutorInstance();
+	if (!CommandsHolder) return false;
+
+	TArray<FCommandInfo> Commands = CommandsHolder->AvailableCommands();
+	bool FoundStore = false;
+	bool FoundLoad = false;
+	for (FCommandInfo Command : Commands) {
+		if (Command.Command == FString(STR("store"))) {
+			FoundStore = true;
+			continue;
+		} else if (Command.Command == FString(STR("load"))) {
+			FoundLoad = true;
+			continue;
+		}
+		Command.bIsDeveloperAdvanced = false;
+		Command.bIsDeveloperBasic = false;
+		Command.bIsAdmin = true;
+	}
+	if (!FoundStore) Commands.Add(FCommandInfo{FString(STR("store")), FString(STR("Stores your dino")), true, true, true});
+	if (!FoundLoad) Commands.Add(FCommandInfo{FString(STR("load")), FString(STR("Loads your dino")), true, true, true});
+	return true;
+}
 
 
 StorageSystem::StorageSystem() {
@@ -19,41 +55,46 @@ StorageSystem::StorageSystem() {
 }
 
 StorageSystem::~StorageSystem() {
-	GetChatMessage->UnregisterHook(HookID);
+	ExecuteCommand->UnregisterHook(HookID);
+	delete Database;
 }
 
 
 void StorageSystem::on_unreal_init() {
 	static RC::DataBase::DataBase DatabaseLink{Config.Database};
+	DatabaseLink.PrepareStorage();
 	Database = &DatabaseLink;
 
-	// I hope in future I can find a way to skip this dummy Prop lookup and get lock and ready direct values out of the box
-	GetChatMessage = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TIPlayerController:GetChatMessage"));
+	ExecuteCommand = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TIPlayerController:ServerExecuteChatCommand"));
 
-	// Maybe precallback + clean message later? idk... I think I need special handler for chat commands to skip resending them to other clients.
-	HookID = GetChatMessage->RegisterPreHook(
+	HookID = ExecuteCommand->RegisterPreHook(
 		[this](UnrealScriptFunctionCallableContext& Context, void* CustomData) {
-			HandleChatMessage(Context);
+			HandleExecuteCommand(Context);
 		}
+	);
+
+	Hook::RegisterEngineTickPreCallback(
+		[this](Hook::TCallbackIterationData<void>& info, UEngine* Context, float DeltaSeconds, bool bIdleMode) {
+			if (!CreateHelpers()) return;
+
+			info.RemoveSelf();
+		}
+		, {false, true, STR("Storage"), STR("Initialize")}
 	);
 }
 
-void StorageSystem::HandleChatMessage(UnrealScriptFunctionCallableContext& FuncContext) {
-	GetChatMessageData* Data = std::bit_cast<GetChatMessageData*>(FuncContext.TheStack.Locals());
-	if (Data->ChatMode != EChatMode::Spatial) return;// Не тот тип, скипаем
+void StorageSystem::HandleExecuteCommand(UnrealScriptFunctionCallableContext& FuncContext) {
+	ServerExecuteChatCommandData* Data = std::bit_cast<ServerExecuteChatCommandData*>(FuncContext.TheStack.Locals());
 
-	RC::StringType Message = Data->NoFilterMsg.ToString();
-	if (!Message.starts_with(STR("/"))) return;// Во бля то бля, лукап символов хуйни
-
-	constexpr auto Prefix = STR("/load ");
-	if (Message == STR("/store")) {
+	if (Data->CommandLine == FString(STR("store"))) {
 		StoreDino(static_cast<ATIPlayerController*>(FuncContext.Context));
-	} else if (Message.starts_with(Prefix)) {
+	} else if (Data->CommandLine.StartsWith(FString(STR("load ")))) {
 		if (!Config.OverrideDino) return;
 
-		RC::StringType IdString = Message.substr(FCString::Strlen(Prefix));
-		int32 DinoID;// Dont judge, 3 lines below this one is just LLM slopcode.
-		auto Utf8 = RC::to_string(IdString);
+		// Dont judge, 5 lines below this one is just LLM slopcode.
+		RC::StringType IdString = *Data->CommandLine;
+		auto Utf8 = RC::to_string(IdString.substr(FCString::Strlen(STR("load "))));
+		int32 DinoID;
 		auto [ptr, ec] = std::from_chars(Utf8.data(), Utf8.data() + Utf8.size(), DinoID);
 		if (ec != std::errc() || ptr != Utf8.data() + Utf8.size()) return;
 
@@ -86,8 +127,6 @@ bool StorageSystem::StorageChecks(ATIDinosaurBase* Dinosaur, ATIPlayerController
 }
 
 void StorageSystem::StoreDino(ATIPlayerController* Player) {
-	static ATIGameModeBase* GameMode = static_cast<ATIGameModeBase*>(UObjectGlobals::FindFirstOf(STR("BP_SurvivalGameMode_C")));
-
 	APawn* Pawn = Player->Pawn();
 	if (!Pawn || !Pawn->IsA(ATIDinosaurBase::StaticClass())) return;
 
@@ -121,8 +160,6 @@ void StorageSystem::StoreDino(ATIPlayerController* Player) {
 
 // Загрузка динозавра с одинаковым ID иногда может не прокатить либо багаться, по этому лучше чистить
 void StorageSystem::LoadDino(ATIPlayerController* Player, int32 DinoID) {
-	static ATIGameModeBase* GameMode = static_cast<ATIGameModeBase*>(UObjectGlobals::FindFirstOf(STR("BP_SurvivalGameMode_C")));
-
 	FString SteamID = Player->SteamId();
 #ifdef LOCAL_DEBUGGING
 	RC::Output::send(STR("Attempt to load dino for SteamID: {}, DinoID: {}"), *SteamID, DinoID);

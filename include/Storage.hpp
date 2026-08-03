@@ -30,10 +30,13 @@ private:
 	StorageConfig Config{};
 	RC::DataBase::DataBase* Database{};
 
-	UFunction* GetChatMessage{};
+	bool CreateHelpers();
+	ATIGameModeBase* GameMode{};
+
+	UFunction* ExecuteCommand{};
 	int32_t HookID{};
 
-	void HandleChatMessage(UnrealScriptFunctionCallableContext& FuncContext);
+	void HandleExecuteCommand(UnrealScriptFunctionCallableContext& FuncContext);
 	bool StorageChecks(ATIDinosaurBase* Dinosaur, ATIPlayerController* Player);
 
 public:

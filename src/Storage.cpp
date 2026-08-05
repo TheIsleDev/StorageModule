@@ -58,27 +58,26 @@ StorageSystem::StorageSystem() {
 
 StorageSystem::~StorageSystem() {
 	ExecuteCommand->UnregisterHook(HookID);
-	delete Database;
+	if (InitializeCallBackID) Hook::UnregisterCallback(InitializeCallBackID);
 }
 
 
 void StorageSystem::on_unreal_init() {
-	static RC::DataBase::DataBase DatabaseLink{Config.Database};
-	DatabaseLink.PrepareStorage();
-	Database = &DatabaseLink;
+	Database = std::make_unique<RC::DataBase::DataBase>(Config.Database);
+	Database->PrepareStorage();
 
 	ExecuteCommand = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TIPlayerController:ServerExecuteChatCommand"));
-
 	HookID = ExecuteCommand->RegisterPreHook(
 		[this](UnrealScriptFunctionCallableContext& Context, void* CustomData) {
 			HandleExecuteCommand(Context);
 		}
 	);
 
-	Hook::RegisterEngineTickPreCallback(
+	InitializeCallBackID = Hook::RegisterEngineTickPreCallback(
 		[this](Hook::TCallbackIterationData<void>& info, UEngine* Context, float DeltaSeconds, bool bIdleMode) {
 			if (!CreateHelpers()) return;
 
+			InitializeCallBackID = 0;
 			info.RemoveSelf();
 		}
 		, {false, true, STR("Storage"), STR("Initialize")}

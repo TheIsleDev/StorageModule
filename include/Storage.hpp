@@ -28,7 +28,8 @@ struct StorageConfig {
 class StorageSystem : public RC::CppUserModBase {
 private:
 	StorageConfig Config{};
-	RC::DataBase::DataBase* Database{};
+	std::unique_ptr<RC::DataBase::DataBase> Database{};
+	Hook::GlobalCallbackId InitializeCallBackID{};
 
 	bool CreateHelpers();
 	ATIGameModeBase* GameMode{};

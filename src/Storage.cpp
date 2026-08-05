@@ -13,7 +13,7 @@
 
 bool StorageSystem::CreateHelpers() {
 	static int TicksFired = 0;
-	static constexpr int TickRate{300};
+	static constexpr int TickRate{150};
 
 	if (++TicksFired < TickRate) return false;
 	TicksFired = 0;
@@ -54,6 +54,9 @@ StorageSystem::StorageSystem() {
     ModAuthors = STR("Shiza");
 
 	RC::ConfigLoader::LoadModConfig(&Config);
+
+	Database = std::make_unique<RC::DataBase::DataBase>(Config.Database);
+	Database->PrepareStorage();
 }
 
 StorageSystem::~StorageSystem() {
@@ -63,9 +66,6 @@ StorageSystem::~StorageSystem() {
 
 
 void StorageSystem::on_unreal_init() {
-	Database = std::make_unique<RC::DataBase::DataBase>(Config.Database);
-	Database->PrepareStorage();
-
 	ExecuteCommand = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/TheIsle.TIPlayerController:ServerExecuteChatCommand"));
 	HookID = ExecuteCommand->RegisterPreHook(
 		[this](UnrealScriptFunctionCallableContext& Context, void* CustomData) {
@@ -80,7 +80,7 @@ void StorageSystem::on_unreal_init() {
 			InitializeCallBackID = 0;
 			info.RemoveSelf();
 		}
-		, {false, true, STR("Storage"), STR("Initialize")}
+		, {false, true, STR("Storage"), STR("StorageInitialize")}
 	);
 }
 
